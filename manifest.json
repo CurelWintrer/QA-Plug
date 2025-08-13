@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "QA图片采集插件",
+  "version": "1.0",
+  "description": "右键点击图片自动下载并上传到数据库",
+  "permissions": [
+    "contextMenus",
+    "activeTab",
+    "storage",
+    "downloads",
+    "notifications"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "QA图片采集设置"
+  },
+  "icons": {
+    "16": "icon16.svg",
+    "48": "icon48.svg",
+    "128": "icon128.svg"
+  }
+}

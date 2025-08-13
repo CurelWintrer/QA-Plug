@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA插件测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .test-image {
+            max-width: 200px;
+            margin: 10px;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+        }
+        .instructions {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .debug-info {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>QA图片采集插件测试页面</h1>
+    
+    <div class="instructions">
+        <h3>测试步骤：</h3>
+        <ol>
+            <li>确保已安装QA插件并配置好API设置</li>
+            <li>右键点击下面的任意图片</li>
+            <li>选择"下载并上传图片到数据库"</li>
+            <li>观察浏览器通知和控制台输出</li>
+        </ol>
+        <p><strong>调试提示：</strong> 按F12打开开发者工具，查看Console标签页的日志信息</p>
+    </div>
+    
+    <div class="test-section">
+        <h3>测试图片</h3>
+        <p>右键点击下面的图片来测试插件功能：</p>
+        
+        <!-- 使用一些公开的测试图片 -->
+        <img src="https://via.placeholder.com/150x150/FF6B6B/FFFFFF?text=Test+1" 
+             alt="测试图片1" class="test-image">
+        
+        <img src="https://via.placeholder.com/150x150/4ECDC4/FFFFFF?text=Test+2" 
+             alt="测试图片2" class="test-image">
+        
+        <img src="https://via.placeholder.com/150x150/45B7D1/FFFFFF?text=Test+3" 
+             alt="测试图片3" class="test-image">
+        
+        <img src="https://via.placeholder.com/150x150/96CEB4/FFFFFF?text=Test+4" 
+             alt="测试图片4" class="test-image">
+    </div>
+    
+    <div class="test-section">
+        <h3>调试信息</h3>
+        <div class="debug-info">
+            <p>插件状态检查：</p>
+            <div id="plugin-status">检查中...</div>
+        </div>
+    </div>
+    
+    <script>
+        // 检查插件是否已加载
+        function checkPluginStatus() {
+            const statusDiv = document.getElementById('plugin-status');
+            
+            // 检查是否有QA插件的content script
+            if (typeof chrome !== 'undefined' && chrome.runtime) {
+                statusDiv.innerHTML = '✅ Chrome扩展API可用<br>';
+                
+                // 尝试检测插件
+                try {
+                    chrome.runtime.sendMessage('检测插件', (response) => {
+                        if (chrome.runtime.lastError) {
+                            statusDiv.innerHTML += '⚠️ 插件通信失败: ' + chrome.runtime.lastError.message;
+                        } else {
+                            statusDiv.innerHTML += '✅ 插件通信正常';
+                        }
+                    });
+                } catch (e) {
+                    statusDiv.innerHTML += '⚠️ 插件检测异常: ' + e.message;
+                }
+            } else {
+                statusDiv.innerHTML = '❌ Chrome扩展API不可用（请确保在Chrome浏览器中打开）';
+            }
+        }
+        
+        // 页面加载完成后检查插件状态
+        document.addEventListener('DOMContentLoaded', checkPluginStatus);
+        
+        // 监听右键事件（用于调试）
+        document.addEventListener('contextmenu', function(e) {
+            if (e.target.tagName === 'IMG') {
+                console.log('右键点击图片:', e.target.src);
+            }
+        });
+    </script>
+</body>
+</html>

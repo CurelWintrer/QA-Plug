@@ -1,0 +1,10 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <rect width="128" height="128" fill="#4CAF50" rx="16"/>
+  <rect x="20" y="20" width="88" height="60" fill="white" rx="8"/>
+  <circle cx="40" cy="40" r="8" fill="#4CAF50"/>
+  <polygon points="52,64 68,48 84,64 84,68 52,68" fill="#4CAF50"/>
+  <rect x="20" y="88" width="88" height="20" fill="white" rx="4"/>
+  <text x="64" y="102" text-anchor="middle" fill="#4CAF50" font-family="Arial" font-size="16" font-weight="bold">QA采集</text>
+  <circle cx="100" cy="32" r="6" fill="#FF5722"/>
+  <path d="M96 28 L104 36 M104 28 L96 36" stroke="white" stroke-width="2" stroke-linecap="round"/>
+</svg>
