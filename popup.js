@@ -2,6 +2,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // 加载已保存的设置
   loadSettings();
   
+  // 初始化级联选择
+  initCascadeSelects();
+  
   // 保存按钮点击事件
   document.getElementById('saveBtn').addEventListener('click', saveSettings);
   
@@ -14,26 +17,49 @@ function loadSettings() {
   chrome.storage.sync.get([
     'apiBase',
     'token', 
-    'category',
-    'collectorType',
-    'questionDirection'
+    'categoryID',
+    'collectorTypeID',
+    'questionDirectionID'
   ], function(result) {
     document.getElementById('apiBase').value = result.apiBase || '';
     document.getElementById('token').value = result.token || '';
-    document.getElementById('category').value = result.category || '数学';
-    document.getElementById('collectorType').value = result.collectorType || '手动采集';
-    document.getElementById('questionDirection').value = result.questionDirection || '计算题';
+    
+    // 如果有保存的设置，在加载完类目后恢复选择
+    if (result.apiBase && result.token) {
+      loadCategories().then(() => {
+        if (result.categoryID) {
+          document.getElementById('category').value = result.categoryID;
+          loadCollectorTypes(result.categoryID).then(() => {
+            if (result.collectorTypeID) {
+              document.getElementById('collectorType').value = result.collectorTypeID;
+              loadQuestionDirections(result.collectorTypeID).then(() => {
+                if (result.questionDirectionID) {
+                  document.getElementById('questionDirection').value = result.questionDirectionID;
+                }
+              });
+            }
+          });
+        }
+      });
+    }
   });
 }
 
 // 保存设置
 function saveSettings() {
+  const categorySelect = document.getElementById('category');
+  const collectorTypeSelect = document.getElementById('collectorType');
+  const questionDirectionSelect = document.getElementById('questionDirection');
+  
   const settings = {
     apiBase: document.getElementById('apiBase').value.trim(),
     token: document.getElementById('token').value.trim(),
-    category: document.getElementById('category').value.trim(),
-    collectorType: document.getElementById('collectorType').value.trim(),
-    questionDirection: document.getElementById('questionDirection').value.trim()
+    categoryID: categorySelect.value,
+    collectorTypeID: collectorTypeSelect.value,
+    questionDirectionID: questionDirectionSelect.value,
+    categoryName: categorySelect.options[categorySelect.selectedIndex]?.text || '',
+    collectorTypeName: collectorTypeSelect.options[collectorTypeSelect.selectedIndex]?.text || '',
+    questionDirectionName: questionDirectionSelect.options[questionDirectionSelect.selectedIndex]?.text || ''
   };
   
   // 验证必填字段
@@ -47,10 +73,10 @@ function saveSettings() {
     return;
   }
   
-  if (!settings.category || !settings.collectorType || !settings.questionDirection) {
-    showStatus('请填写所有参数', 'error');
-    return;
-  }
+  // if (!settings.categoryID || !settings.collectorTypeID || !settings.questionDirectionID) {
+  //   showStatus('请填写所有参数', 'error');
+  //   return;
+  // }
   
   // 保存到chrome存储
   chrome.storage.sync.set(settings, function() {
@@ -126,4 +152,176 @@ function processManualUpload(imageUrl) {
       showUploadStatus('上传失败: ' + (response?.error || '未知错误'), 'error');
     }
   });
+}
+
+// 初始化级联选择
+function initCascadeSelects() {
+  const categorySelect = document.getElementById('category');
+  const collectorTypeSelect = document.getElementById('collectorType');
+  const questionDirectionSelect = document.getElementById('questionDirection');
+  
+  // 类目选择变化事件
+  categorySelect.addEventListener('change', function() {
+    const categoryID = this.value;
+    
+    // 重置下级选择
+    resetSelect(collectorTypeSelect, '请先选择类目');
+    resetSelect(questionDirectionSelect, '请先选择采集类型');
+    
+    if (categoryID) {
+      loadCollectorTypes(categoryID);
+    }
+  });
+  
+  // 采集类型选择变化事件
+  collectorTypeSelect.addEventListener('change', function() {
+    const collectorTypeID = this.value;
+    
+    // 重置下级选择
+    resetSelect(questionDirectionSelect, '请先选择采集类型');
+    
+    if (collectorTypeID) {
+      loadQuestionDirections(collectorTypeID);
+    }
+  });
+}
+
+// 重置选择框
+function resetSelect(selectElement, placeholder) {
+  selectElement.innerHTML = `<option value="">${placeholder}</option>`;
+  selectElement.disabled = true;
+}
+
+// 加载类目列表
+async function loadCategories() {
+  const apiBase = document.getElementById('apiBase').value.trim();
+  const token = document.getElementById('token').value.trim();
+  
+  if (!apiBase || !token) {
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${apiBase}/api/category/`, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error('获取类目失败: ' + response.statusText);
+    }
+    
+    const result = await response.json();
+    
+    if (result.code !== 200) {
+      throw new Error('获取类目失败: ' + result.message);
+    }
+    
+    const categorySelect = document.getElementById('category');
+    categorySelect.innerHTML = '<option value="">请选择类目...</option>';
+    
+    result.data.forEach(category => {
+      const option = document.createElement('option');
+      option.value = category.categoryID;
+      option.textContent = category.categoryName;
+      categorySelect.appendChild(option);
+    });
+    
+  } catch (error) {
+    console.error('加载类目失败:', error);
+    showStatus('加载类目失败: ' + error.message, 'error');
+  }
+}
+
+// 加载采集类型列表
+async function loadCollectorTypes(categoryID) {
+  const apiBase = document.getElementById('apiBase').value.trim();
+  const token = document.getElementById('token').value.trim();
+  
+  if (!apiBase || !token || !categoryID) {
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${apiBase}/api/category/${categoryID}/collector-types`, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error('获取采集类型失败: ' + response.statusText);
+    }
+    
+    const result = await response.json();
+    
+    if (result.code !== 200) {
+      throw new Error('获取采集类型失败: ' + result.message);
+    }
+    
+    const collectorTypeSelect = document.getElementById('collectorType');
+    collectorTypeSelect.innerHTML = '<option value="">请选择采集类型...</option>';
+    collectorTypeSelect.disabled = false;
+    
+    result.data.forEach(collectorType => {
+      const option = document.createElement('option');
+      option.value = collectorType.collectorTypeID;
+      option.textContent = collectorType.collectorTypeName;
+      collectorTypeSelect.appendChild(option);
+    });
+    
+  } catch (error) {
+    console.error('加载采集类型失败:', error);
+    showStatus('加载采集类型失败: ' + error.message, 'error');
+  }
+}
+
+// 加载问题方向列表
+async function loadQuestionDirections(collectorTypeID) {
+  const apiBase = document.getElementById('apiBase').value.trim();
+  const token = document.getElementById('token').value.trim();
+  
+  if (!apiBase || !token || !collectorTypeID) {
+    return;
+  }
+  
+  try {
+    const response = await fetch(`${apiBase}/api/category/collector-types/${collectorTypeID}/question-directions`, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error('获取问题方向失败: ' + response.statusText);
+    }
+    
+    const result = await response.json();
+    
+    if (result.code !== 200) {
+      throw new Error('获取问题方向失败: ' + result.message);
+    }
+    
+    const questionDirectionSelect = document.getElementById('questionDirection');
+    questionDirectionSelect.innerHTML = '<option value="">请选择问题方向...</option>';
+    questionDirectionSelect.disabled = false;
+    
+    result.data.forEach(questionDirection => {
+      const option = document.createElement('option');
+      option.value = questionDirection.questionDirectionID;
+      option.textContent = questionDirection.questionDirectionName;
+      questionDirectionSelect.appendChild(option);
+    });
+    
+  } catch (error) {
+    console.error('加载问题方向失败:', error);
+    showStatus('加载问题方向失败: ' + error.message, 'error');
+  }
 }

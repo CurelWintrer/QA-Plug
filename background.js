@@ -152,9 +152,12 @@ function getSettings() {
     chrome.storage.sync.get([
       'apiBase',
       'token',
-      'category',
-      'collectorType', 
-      'questionDirection'
+      'categoryID',
+      'collectorTypeID', 
+      'questionDirectionID',
+      'categoryName',
+      'collectorTypeName',
+      'questionDirectionName'
     ], resolve);
   });
 }
@@ -412,9 +415,9 @@ async function addImageInfo(settings) {
       'Authorization': 'Bearer ' + settings.token
     },
     body: JSON.stringify({
-      category: settings.category,
-      collector_type: settings.collectorType,
-      question_direction: settings.questionDirection
+      category: settings.categoryName,
+      collector_type: settings.collectorTypeName,
+      question_direction: settings.questionDirectionName
     })
   });
   
