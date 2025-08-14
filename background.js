@@ -409,7 +409,7 @@ async function addImageInfo(settings) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': settings.token
+      'Authorization': 'Bearer ' + settings.token
     },
     body: JSON.stringify({
       category: settings.category,
@@ -440,7 +440,7 @@ async function uploadImage(settings, imageBlob, imageId) {
   const response = await fetch(settings.apiBase + '/api/image/upload', {
     method: 'POST',
     headers: {
-      'Authorization': settings.token
+      'Authorization': 'Bearer ' + settings.token
     },
     body: formData
   });
