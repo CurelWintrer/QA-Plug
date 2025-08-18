@@ -1,22 +1,6 @@
 // Content script for QA image collection plugin
 // This script runs in the context of web pages
 
-// 监听来自background script的消息
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'getImageInfo') {
-    // 可以在这里添加获取图片额外信息的逻辑
-    // 比如图片的alt文本、周围的文本内容等
-    const img = document.querySelector(`img[src="${request.imageUrl}"]`);
-    const imageInfo = {
-      alt: img ? img.alt : '',
-      title: img ? img.title : '',
-      width: img ? img.naturalWidth : 0,
-      height: img ? img.naturalHeight : 0
-    };
-    sendResponse(imageInfo);
-  }
-});
-
 // 可以添加一些页面交互功能
 // 比如高亮显示已处理的图片等
 let processedImages = new Set();
@@ -32,11 +16,21 @@ function markImageAsProcessed(imageUrl) {
   }
 }
 
-// 监听来自background的标记消息
+// 统一的消息监听器（合并两个监听器）
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Content script 收到消息:', request);
   
-  if (request.action === 'markImageProcessed') {
+  if (request.action === 'getImageInfo') {
+    // 获取图片额外信息的逻辑
+    const img = document.querySelector(`img[src="${request.imageUrl}"]`);
+    const imageInfo = {
+      alt: img ? img.alt : '',
+      title: img ? img.title : '',
+      width: img ? img.naturalWidth : 0,
+      height: img ? img.naturalHeight : 0
+    };
+    sendResponse(imageInfo);
+  } else if (request.action === 'markImageProcessed') {
     markImageAsProcessed(request.imageUrl);
     showSuccessMessage('图片上传成功！已保存到数据库');
     sendResponse({success: true});

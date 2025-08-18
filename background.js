@@ -1,4 +1,51 @@
-// 创建右键菜单
+// QA图片采集插件 - Background Script
+// 修复版本：移除重复函数，添加缺失函数，优化逻辑
+
+// =============================================================================
+// 工具函数
+// =============================================================================
+
+// 调试Blob对象的工具函数
+function debugBlob(blob, name) {
+  console.log(`${name} 调试信息:`);
+  console.log('- 类型:', typeof blob);
+  console.log('- instanceof Blob:', blob instanceof Blob);
+  console.log('- size:', blob?.size);
+  console.log('- type:', blob?.type);
+  console.log('- 对象:', blob);
+}
+
+// 获取插件设置
+function getSettings() {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get([
+      'apiBase',
+      'token',
+      'categoryID',
+      'collectorTypeID', 
+      'questionDirectionID',
+      'categoryName',
+      'collectorTypeName',
+      'questionDirectionName',
+      'currentTask'
+    ], resolve);
+  });
+}
+
+// 显示通知
+// 使用Chrome内置图标
+// 禁用通知功能，使用console.log代替
+function showNotification(title, message) {
+  // 在控制台显示消息，不使用Chrome通知
+  console.log(`[${title}] ${message}`);
+
+}
+
+// =============================================================================
+// Chrome扩展事件监听器
+// =============================================================================
+
+// 插件安装时创建右键菜单
 chrome.runtime.onInstalled.addListener(() => {
   console.log('QA插件已安装，正在创建右键菜单...');
   chrome.contextMenus.create({
@@ -42,164 +89,132 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
+// =============================================================================
+// 主要功能函数
+// =============================================================================
+
 // 处理手动上传
 async function handleManualUpload(imageUrl) {
   console.log('开始手动上传图片:', imageUrl);
   
   try {
     // 获取设置
-    console.log('正在获取设置...');
     const settings = await getSettings();
-    console.log('获取到的设置:', settings);
     
+    // 验证配置
     if (!settings.apiBase || !settings.token) {
       throw new Error('请先在插件设置中配置API地址和Token');
+    }
+    
+    // 验证任务
+    if (!settings.currentTask || !settings.currentTask.workID) {
+      throw new Error('请先选择一个工作任务');
     }
     
     showNotification('处理中', '正在下载图片...');
     
     // 下载图片
     const imageBlob = await downloadImage(imageUrl);
+    debugBlob(imageBlob, '下载的图片');
     
-    showNotification('处理中', '正在添加图片信息...');
-    
-    // 添加图片信息
-    const imageInfo = await addImageInfo(settings);
-    
-    if (!imageInfo || !imageInfo.id) {
-      throw new Error('添加图片信息失败');
+    // 验证下载结果
+    if (!imageBlob || !(imageBlob instanceof Blob)) {
+      throw new Error('图片下载失败：无效的Blob对象');
     }
     
     showNotification('处理中', '正在上传图片...');
     
     // 上传图片
-    await uploadImage(settings, imageBlob, imageInfo.id);
+    const result = await uploadImage(settings, imageBlob, settings.currentTask.workID);
     
-    showNotification('成功', '图片已成功下载并上传到数据库！');
+    showNotification('成功', `图片已成功上传到任务 ${settings.currentTask.workID}！`);
+    console.log('手动上传完成', result);
     
-    console.log('手动上传完成');
+    // 🎯 简化版本：只在上传成功后增加本地计数
+    await incrementLocalTaskProgress();
     
   } catch (error) {
     console.error('手动上传失败:', error);
-    console.error('错误堆栈:', error.stack);
     showNotification('错误', '上传失败: ' + error.message);
     throw error;
   }
 }
 
-// 处理图片下载和上传
+// 处理右键上传
 async function handleImageDownloadAndUpload(info, tab) {
-  console.log('handleImageDownloadAndUpload 函数被调用');
+  console.log('开始处理右键图片上传:', info.srcUrl);
+  
   try {
-    // 获取设置
-    console.log('正在获取设置...');
     const settings = await getSettings();
-    console.log('获取到的设置:', settings);
     
     if (!settings.apiBase || !settings.token) {
-      console.log('设置不完整，缺少API地址或Token');
-      showNotification('错误', '请先在插件设置中配置API地址和Token');
+      console.error('未配置API设置');
       return;
     }
     
-    showNotification('处理中', '正在下载图片...');
+    if (!settings.currentTask || !settings.currentTask.workID) {
+      console.error('未选择工作任务');
+      return;
+    }
     
-    // 下载图片
+    console.log('开始下载图片:', info.srcUrl);
     const imageBlob = await downloadImage(info.srcUrl);
     
-    showNotification('处理中', '正在添加图片信息...');
-    
-    // 添加图片信息
-    const imageInfo = await addImageInfo(settings);
-    
-    if (!imageInfo || !imageInfo.id) {
-      throw new Error('添加图片信息失败');
+    if (!imageBlob) {
+      throw new Error('图片下载失败');
     }
     
-    showNotification('处理中', '正在上传图片...');
+    console.log('开始上传图片');
+    const result = await uploadImage(settings, imageBlob, settings.currentTask.workID);
     
-    // 上传图片
-    await uploadImage(settings, imageBlob, imageInfo.id);
+    console.log('右键上传成功:', result);
+    await incrementLocalTaskProgress(); // 添加这行
     
-    // 标记图片为已处理
-    chrome.tabs.sendMessage(tab.id, {
-      action: 'markImageProcessed',
-      imageUrl: info.srcUrl
-    });
-    
-    showNotification('成功', '图片已成功下载并上传到数据库！');
-    
-  } catch (error) {
-    console.error('处理图片失败:', error);
-    console.error('错误堆栈:', error.stack);
-    showNotification('错误', '处理失败: ' + error.message);
-    
-    // 发送错误信息到content script（如果可能）
+    // 尝试标记页面上的图片（如果可能）
     try {
       chrome.tabs.sendMessage(tab.id, {
-        action: 'showError',
-        error: error.message
+        action: 'markImageProcessed',
+        imageUrl: info.srcUrl
       });
-    } catch (msgError) {
-      console.error('发送错误消息失败:', msgError);
+    } catch (error) {
+      console.log('标记图片失败（正常情况）:', error.message);
     }
+    
+  } catch (error) {
+    console.error('右键上传失败:', error);
   }
 }
 
-// 获取设置
-function getSettings() {
-  return new Promise((resolve) => {
-    chrome.storage.sync.get([
-      'apiBase',
-      'token',
-      'categoryID',
-      'collectorTypeID', 
-      'questionDirectionID',
-      'categoryName',
-      'collectorTypeName',
-      'questionDirectionName'
-    ], resolve);
-  });
-}
+// =============================================================================
+// 图片处理函数
+// =============================================================================
 
-// 下载图片
+// 下载图片主函数
 async function downloadImage(imageUrl) {
   console.log('开始下载图片:', imageUrl);
   
   try {
-    // 方法1: 使用fetch下载
+    // 使用fetch方法下载
     const blob = await downloadImageWithFetch(imageUrl);
+    console.log('✅ 图片下载成功:', blob.size, 'bytes, 类型:', blob.type);
     
     // 转换图片格式
     const convertedBlob = await convertImageFormat(blob);
+    console.log('✅ 图片处理完成:', convertedBlob.size, 'bytes, 类型:', convertedBlob.type);
     
     return convertedBlob;
+    
   } catch (fetchError) {
     console.warn('Fetch下载失败，尝试备用方法:', fetchError.message);
     
     try {
-      // 方法2: 使用备用配置下载
+      // 使用备用方法下载
       const blob = await downloadImageWithChromeAPI(imageUrl);
-      
-      // 转换图片格式
       const convertedBlob = await convertImageFormat(blob);
-      
       return convertedBlob;
     } catch (chromeError) {
-      console.warn('备用方法也失败，尝试页面注入下载:', chromeError.message);
-      
-      try {
-        // 方法3: 通过content script在页面环境下载
-        const blob = await downloadImageViaContentScript(imageUrl);
-        
-        // 转换图片格式
-        const convertedBlob = await convertImageFormat(blob);
-        
-        return convertedBlob;
-      } catch (contentError) {
-        console.error('所有下载方法都失败了');
-        throw new Error(`所有下载方法都失败了，请检查网络连接或图片链接是否有效。对于某些受保护的图片，可能需要在浏览器中手动下载。`);
-      }
+      console.error('❌ 所有下载方法都失败了');
+      throw new Error(`图片下载失败: ${fetchError.message}`);
     }
   }
 }
@@ -226,8 +241,6 @@ async function downloadImageWithFetch(imageUrl) {
     console.log('无法提取Referer，跳过设置');
   }
   
-  console.log('使用请求头:', headers);
-  
   const response = await fetch(imageUrl, {
     method: 'GET',
     headers: headers,
@@ -245,13 +258,11 @@ async function downloadImageWithFetch(imageUrl) {
   return blob;
 }
 
-// 使用简化的备用下载方法
+// 备用下载方法
 async function downloadImageWithChromeAPI(imageUrl) {
   console.log('使用备用方法下载图片:', imageUrl);
   
-  // 尝试不同的fetch配置
   const alternativeConfigs = [
-    // 配置1: 无CORS模式
     {
       method: 'GET',
       mode: 'no-cors',
@@ -260,19 +271,17 @@ async function downloadImageWithChromeAPI(imageUrl) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       }
     },
-    // 配置2: 最简配置
     {
       method: 'GET',
       mode: 'cors',
       credentials: 'include'
     },
-    // 配置3: 模拟移动端
     {
       method: 'GET',
       mode: 'cors',
       credentials: 'omit',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1'
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15'
       }
     }
   ];
@@ -298,149 +307,59 @@ async function downloadImageWithChromeAPI(imageUrl) {
   throw new Error('所有备用下载方法都失败了');
 }
 
-// 通过content script在页面环境下载图片
-async function downloadImageViaContentScript(imageUrl) {
-  console.log('使用页面注入方法下载图片:', imageUrl);
-  
-  return new Promise((resolve, reject) => {
-    // 获取当前活动标签页
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs || tabs.length === 0) {
-        reject(new Error('无法获取当前标签页'));
-        return;
-      }
-      
-      const tabId = tabs[0].id;
-      
-      // 向content script发送下载请求
-      chrome.tabs.sendMessage(tabId, {
-        action: 'downloadImageInPage',
-        imageUrl: imageUrl
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error('无法与页面通信: ' + chrome.runtime.lastError.message));
-          return;
-        }
-        
-        if (response && response.success) {
-          // 将base64数据转换为blob
-          try {
-            const byteCharacters = atob(response.imageData.split(',')[1]);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: response.mimeType || 'image/jpeg' });
-            
-            console.log('页面注入下载成功, 大小:', blob.size, 'bytes, 类型:', blob.type);
-            resolve(blob);
-          } catch (error) {
-            reject(new Error('转换图片数据失败: ' + error.message));
-          }
-        } else {
-          reject(new Error(response?.error || '页面下载失败'));
-        }
-      });
-    });
-  });
-}
-
-// 转换图片格式
+// 转换图片格式（简化版，适用于Service Worker环境）
 async function convertImageFormat(blob) {
-  return new Promise((resolve, reject) => {
-    // 如果已经是常见格式，直接返回
-    if (blob.type === 'image/jpeg' || blob.type === 'image/png' || blob.type === 'image/webp') {
-      console.log('图片格式无需转换:', blob.type);
-      resolve(blob);
-      return;
-    }
-    
-    console.log('开始转换图片格式，原格式:', blob.type);
-    
-    // 创建图片元素
-    const img = new Image();
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    
-    // 创建图片URL
-    const imageUrl = URL.createObjectURL(blob);
-    
-    img.onload = function() {
-      // 清理URL对象
-      URL.revokeObjectURL(imageUrl);
-      
-      try {
-        // 设置画布尺寸
-        canvas.width = img.width;
-        canvas.height = img.height;
-        
-        // 绘制图片到画布
-        ctx.drawImage(img, 0, 0);
-        
-        // 转换为JPEG格式
-        canvas.toBlob((convertedBlob) => {
-          if (convertedBlob) {
-            console.log('图片格式转换完成:', convertedBlob.type, '大小:', convertedBlob.size);
-            resolve(convertedBlob);
-          } else {
-            reject(new Error('图片格式转换失败'));
-          }
-        }, 'image/jpeg', 0.9); // 90%质量的JPEG
-        
-      } catch (error) {
-        console.error('图片转换过程中出错:', error);
-        reject(error);
-      }
-    };
-    
-    img.onerror = function() {
-      // 清理URL对象
-      URL.revokeObjectURL(imageUrl);
-      console.error('图片加载失败，使用原始格式');
-      resolve(blob); // 如果转换失败，返回原始blob
-    };
-    
-    // 加载图片
-    img.src = imageUrl;
-  });
-}
-
-// 添加图片信息
-async function addImageInfo(settings) {
-  const response = await fetch(settings.apiBase + '/api/image/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + settings.token
-    },
-    body: JSON.stringify({
-      category: settings.categoryName,
-      collector_type: settings.collectorTypeName,
-      question_direction: settings.questionDirectionName
-    })
-  });
+  console.log('图片格式转换 - 输入:', blob.type, blob.size);
   
-  if (!response.ok) {
-    throw new Error('添加图片信息失败: ' + response.statusText);
+  // 在Service Worker中无法使用Canvas进行转换
+  // 直接返回原始blob，让服务器处理格式转换
+  if (blob.type === 'image/jpeg' || blob.type === 'image/png' || blob.type === 'image/webp') {
+    console.log('图片格式无需转换:', blob.type);
+    return blob;
   }
   
-  const result = await response.json();
-  
-  if (result.code !== 200) {
-    throw new Error('添加图片信息失败: ' + result.message);
-  }
-  
-  return result.data;
+  // 对于其他格式，创建一个JPEG类型的blob
+  console.log('转换图片格式为JPEG');
+  const convertedBlob = new Blob([blob], { type: 'image/jpeg' });
+  return convertedBlob;
 }
 
-// 上传图片
-async function uploadImage(settings, imageBlob, imageId) {
+// =============================================================================
+// API调用函数
+// =============================================================================
+
+// 上传图片到服务器
+async function uploadImage(settings, imageBlob, workId) {
+  console.log('🚀 开始上传图片');
+  console.log('参数检查:');
+  console.log('- workId:', workId, typeof workId);
+  console.log('- imageBlob type:', imageBlob?.type);
+  console.log('- imageBlob size:', imageBlob?.size);
+  console.log('- imageBlob instanceof Blob:', imageBlob instanceof Blob);
+  
+  // 验证参数
+  if (!imageBlob || !(imageBlob instanceof Blob)) {
+    throw new Error('图片数据无效：不是有效的Blob对象');
+  }
+  
+  if (!workId) {
+    throw new Error('工作ID无效');
+  }
+  
+  // 创建FormData
   const formData = new FormData();
-  formData.append('file', imageBlob, 'image.jpg');
-  formData.append('image_id', imageId.toString());
   
-  const response = await fetch(settings.apiBase + '/api/image/upload', {
+  try {
+    formData.append('file', imageBlob, 'image.jpg');
+    formData.append('workID', String(workId));
+    console.log('✅ FormData创建成功');
+  } catch (formError) {
+    console.error('❌ FormData创建失败:', formError);
+    throw new Error('FormData创建失败: ' + formError.message);
+  }
+  
+  // 发送请求
+  const response = await fetch(settings.apiBase + '/api/image/work', {
     method: 'POST',
     headers: {
       'Authorization': 'Bearer ' + settings.token
@@ -448,25 +367,46 @@ async function uploadImage(settings, imageBlob, imageId) {
     body: formData
   });
   
+  console.log('请求响应状态:', response.status, response.statusText);
+  
   if (!response.ok) {
-    throw new Error('上传图片失败: ' + response.statusText);
+    const errorText = await response.text();
+    throw new Error(`上传失败: ${response.status} ${response.statusText} - ${errorText}`);
   }
   
   const result = await response.json();
+  console.log('✅ 上传成功:', result);
   
+  // 检查响应格式
   if (result.code && result.code !== 200) {
-    throw new Error('上传图片失败: ' + result.message);
+    throw new Error('上传失败: ' + result.message);
   }
   
   return result;
 }
 
-// 显示通知
-function showNotification(title, message) {
-  chrome.notifications.create({
-    type: 'basic',
-    iconUrl: 'icon48.svg',
-    title: title,
-    message: message
-  });
+
+// 修改incrementLocalTaskProgress函数，完全移除消息发送
+async function incrementLocalTaskProgress() {
+  try {
+    const settings = await getSettings();
+    if (settings.currentTask) {
+      const newCount = (settings.currentTask.currentCount || 0) + 1;
+      const updatedTask = {
+        ...settings.currentTask,
+        currentCount: newCount
+      };
+      
+      // 保存更新的任务数据
+      await new Promise((resolve) => {
+        chrome.storage.sync.set({ currentTask: updatedTask }, () => {
+          console.log('💾 本地任务进度已更新:', `${updatedTask.currentCount}/${updatedTask.targetCount}`);
+          resolve();
+        });
+      });
+ 
+    }
+  } catch (error) {
+    console.error('❌ 更新本地进度失败:', error);
+  }
 }
