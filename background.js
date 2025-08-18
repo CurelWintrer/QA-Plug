@@ -71,22 +71,18 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 // 监听来自popup的消息
+// 简化消息监听器，只处理必要的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Background收到消息:', request);
   
-  if (request.action === 'manualUpload') {
-    handleManualUpload(request.imageUrl)
-      .then(() => {
-        sendResponse({ success: true });
-      })
-      .catch((error) => {
-        console.error('手动上传失败:', error);
-        sendResponse({ success: false, error: error.message });
-      });
-    
-    // 返回true表示异步响应
-    return true;
+  // 🎯 只处理真正需要的消息
+  if (request.action === 'getImageInfo') {
+    // 处理获取图片信息的请求
+    sendResponse({ success: true });
   }
+  // 移除manualUpload处理，因为popup.js已经直接处理
+  
+  return false; // 同步响应
 });
 
 // =============================================================================
