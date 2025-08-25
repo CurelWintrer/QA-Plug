@@ -193,6 +193,7 @@ function showDetailedCurrentTask(task) {
 // 显示任务详情
 function showTaskDetails(task) {
   // 使用正确的HTML元素ID
+  document.getElementById('detailTaskID').textContent = task.workID || '-';
   document.getElementById('detailCategory').textContent = task.category;
   document.getElementById('detailCollectorType').textContent = task.collector_type;
   document.getElementById('detailQuestionDirection').textContent = task.question_direction;
@@ -207,6 +208,7 @@ function showEmptyTaskDetails() {
   
   // 检查元素是否存在并设置默认文本
   const elements = {
+    detailTaskID: '请先选择任务',
     detailCategory: '请先选择任务',
     detailCollectorType: '请先选择任务',
     detailQuestionDirection: '请先选择任务',
@@ -769,6 +771,7 @@ function showDetailedCurrentTask(task) {
   
   // 显示顶部当前任务
   document.getElementById('currentTaskDisplay').style.display = 'block';
+  document.getElementById('displayTaskID').textContent = task.workID || '-';
   document.getElementById('displayCategory').textContent = task.category;
   document.getElementById('displayCollectorType').textContent = task.collector_type;
   document.getElementById('displayQuestionDirection').textContent = task.question_direction;
