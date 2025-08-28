@@ -1,11 +1,10 @@
-// 🎯 终极解决方案：完全禁用所有消息发送
+
 (function() {
   'use strict';
   
-  // 保存原始函数
+
   const originalSendMessage = chrome?.runtime?.sendMessage;
   
-  // 完全重写sendMessage函数
   if (typeof chrome !== 'undefined' && chrome.runtime) {
     chrome.runtime.sendMessage = function(...args) {
       console.log('🚫 已拦截并阻止消息发送:', args[0]?.action || args[0]);
@@ -31,7 +30,7 @@
   }
 })();
 
-// 原有代码从这里开始
+
 document.addEventListener('DOMContentLoaded', function() {
   // 现有的事件监听器
   document.getElementById('saveBtn').addEventListener('click', saveSettings);
@@ -41,11 +40,29 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('startWorkBtn').addEventListener('click', startWork);
   document.getElementById('refreshProgressBtn').addEventListener('click', manualRefreshProgress);
   
+  // 添加测试通知按钮事件
+  const testBtn = document.getElementById('testNotificationBtn');
+  if (testBtn) {
+    testBtn.addEventListener('click', testNotification);
+  }
+  
   // 加载设置
   loadSettings();
 });
 
-// 如果有，可以这样修改：
+
+// 测试通知功能
+function testNotification() {
+  chrome.runtime.sendMessage({
+    action: 'testNotification',
+    title: '测试通知',
+    message: '🎉 通知系统正常工作！这是一条测试消息。',
+    displayTime: 2500  // 测试通知显示2.5秒
+  });
+  showUploadStatus('已发送测试通知', 'success');
+}
+
+
 async function manualRefreshProgress() {
   const refreshBtn = document.getElementById('refreshProgressBtn');
   const originalText = refreshBtn.textContent;
@@ -104,7 +121,7 @@ async function manualRefreshProgress() {
   }
 }
 
-// 修改loadSettings函数，删除级联选择相关代码
+
 function loadSettings() {
   chrome.storage.sync.get([
     'apiBase',
@@ -121,7 +138,7 @@ function loadSettings() {
   });
 }
 
-// 新增：检查任务进度更新
+// 检查任务进度更新
 async function checkTaskProgressUpdate(settings) {
   if (!settings.currentTask || !settings.apiBase || !settings.token) {
     return;
@@ -202,7 +219,7 @@ function showTaskDetails(task) {
   document.getElementById('detailCurrentCount').textContent = task.currentCount;
 }
 
-// 🎯 添加这个缺失的函数
+
 function showEmptyTaskDetails() {
   console.log('显示空任务详情');
   
@@ -349,7 +366,7 @@ function uploadImage() {
 // 添加上传状态标志
 let isUploading = false;
 
-// 完全重写processManualUpload函数，不使用任何消息发送
+
 function processManualUpload(imageUrl) {
   if (isUploading) {
     showUploadStatus('正在上传中，请稍候...', 'error');
@@ -375,6 +392,14 @@ function processManualUpload(imageUrl) {
       showUploadStatus('图片上传成功！', 'success');
       document.getElementById('imageUrl').value = ''; // 清空输入框
       
+      // 发送成功通知
+      chrome.runtime.sendMessage({
+        action: 'testNotification',
+        title: '上传成功',
+        message: '✅ 图片已成功上传到数据库！',
+        displayTime: 2000  // 成功通知显示2秒
+      });
+      
       // 更新界面显示
       chrome.storage.sync.get(['currentTask'], (result) => {
         if (result.currentTask) {
@@ -393,12 +418,23 @@ function processManualUpload(imageUrl) {
       uploadBtn.disabled = false;
       uploadBtn.textContent = originalText;
       
-      showUploadStatus('上传失败: ' + error.message, 'error');
+      // 使用友好的错误消息
+      const friendlyMessage = error.message.includes('❌') || error.message.includes('🔐') || error.message.includes('🔧') || error.message.includes('🔄') || error.message.includes('✅') 
+        ? error.message 
+        : '上传失败: ' + error.message;
+      showUploadStatus(friendlyMessage, 'error');
+      
+      // 发送错误通知
+      chrome.runtime.sendMessage({
+        action: 'testNotification',
+        title: '上传失败',
+        message: friendlyMessage,
+        displayTime: 5000  // 错误通知显示5秒
+      });
     });
 }
 
-// 🎯 新增：直接在popup中处理上传
-// 修改handleManualUploadDirectly函数（第430-450行）
+// 直接在popup中处理上传
 async function handleManualUploadDirectly(imageUrl) {
   console.log('开始手动上传图片:', imageUrl);
   
@@ -449,16 +485,27 @@ async function handleManualUploadDirectly(imageUrl) {
     
     // 4. 处理响应
     if (!uploadResponse.ok) {
-      const errorText = await uploadResponse.text();
-      throw new Error(`上传失败: ${uploadResponse.status} ${uploadResponse.statusText} - ${errorText}`);
+      let errorMessage = `上传失败: HTTP ${uploadResponse.status}`;
+      try {
+        const errorData = await uploadResponse.json();
+        if (errorData.code && errorData.message) {
+          errorMessage = getUploadErrorMessage(errorData.code, errorData.message);
+        }
+      } catch (e) {
+        // 如果无法解析JSON，使用默认错误消息
+        const errorText = await uploadResponse.text();
+        errorMessage = `上传失败: ${uploadResponse.status} ${uploadResponse.statusText} - ${errorText}`;
+      }
+      throw new Error(errorMessage);
     }
-    
+
     const result = await uploadResponse.json();
     console.log('✅ 上传成功:', result);
     
     // 检查响应格式
     if (result.code && result.code !== 200) {
-      throw new Error('上传失败: ' + result.message);
+      const errorMessage = getUploadErrorMessage(result.code, result.message);
+      throw new Error(errorMessage);
     }
     
     // 5. 更新本地计数
@@ -481,7 +528,53 @@ async function handleManualUploadDirectly(imageUrl) {
   }
 }
 
-// 🎯 新增：图片格式转换（复制background的逻辑）
+// 获取用户友好的上传错误消息
+function getUploadErrorMessage(code, originalMessage) {
+  const errorMessages = {
+    400: {
+      '未提供文件': '❌ 图片文件丢失，请重试',
+      '未提供工作ID': '❌ 工作任务未选择，请先选择一个任务',
+      '工作不存在': '❌ 选择的工作任务不存在，请重新选择任务',
+      '该工作已完成采集，不能继续添加图片': '❌ 该任务已完成采集，无需继续上传图片',
+      '错误原因': '❌ 请求参数错误：' + originalMessage,
+      'default': '❌ 请求参数错误：' + originalMessage
+    },
+    401: {
+      '未授权访问': '🔐 未授权访问，请检查Token是否正确或已过期',
+      'default': '🔐 身份验证失败，请检查Token是否正确或已过期'
+    },
+    500: {
+      '服务器错误': '🔧 服务器内部错误，请稍后重试或联系管理员',
+      'default': '🔧 服务器内部错误，请稍后重试或联系管理员'
+    }
+  };
+
+  // 检查是否是文件名重复错误
+  if (code === 400 && originalMessage && originalMessage.includes('文件名重复')) {
+    const match = originalMessage.match(/文件名重复，已存在相同的图片文件: (.+)/);
+    if (match) {
+      return `🔄 图片已存在：${match[1]}\n该图片之前已经上传过了`;
+    }
+    return '🔄 图片文件名重复，该图片可能已经上传过了';
+  }
+
+  // 获取对应错误代码的消息映射
+  const codeMessages = errorMessages[code];
+  if (!codeMessages) {
+    return `❌ 上传失败 (错误代码: ${code})：${originalMessage}`;
+  }
+
+  // 查找具体的错误消息
+  const specificMessage = codeMessages[originalMessage];
+  if (specificMessage) {
+    return specificMessage;
+  }
+
+  // 使用默认消息
+  return codeMessages.default || `❌ 上传失败：${originalMessage}`;
+}
+
+// 图片格式转换（复制background的逻辑）
 async function convertImageFormatInPopup(blob) {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
@@ -765,7 +858,7 @@ function showTaskStatus(message, type) {
   statusDiv.style.display = 'block';
 }
 
-// 修改showDetailedCurrentTask函数，确保进度条正确更新
+// 进度条更新
 function showDetailedCurrentTask(task) {
   console.log('🎯 更新顶部当前任务显示:', task);
   

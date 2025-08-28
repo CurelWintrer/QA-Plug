@@ -33,12 +33,34 @@ function getSettings() {
 }
 
 // 显示通知
-// 使用Chrome内置图标
-// 禁用通知功能，使用console.log代替
-function showNotification(title, message) {
-  // 在控制台显示消息，不使用Chrome通知
+function showNotification(title, message, displayTime = 3000) {
+  // 在控制台显示消息
   console.log(`[${title}] ${message}`);
-
+  
+  // 显示Chrome通知 - 使用项目文件夹中的icon48.png图标
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: chrome.runtime.getURL('icon48.png'),
+    title: title,
+    message: message,
+    priority: 1,
+    requireInteraction: false  // 设置为false让通知自动消失，true则需要用户手动关闭
+  }, (notificationId) => {
+    if (chrome.runtime.lastError) {
+      console.error('通知创建失败:', chrome.runtime.lastError);
+    } else {
+      console.log('通知已显示:', notificationId);
+      
+      // 根据指定时间自动清除通知
+      setTimeout(() => {
+        chrome.notifications.clear(notificationId, (wasCleared) => {
+          if (wasCleared) {
+            console.log(`通知已自动清除 (${displayTime}ms):`, notificationId);
+          }
+        });
+      }, displayTime);
+    }
+  });
 }
 
 // =============================================================================
@@ -76,7 +98,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Background收到消息:', request);
 
   // 🎯 只处理真正需要的消息
-  if (request.action === 'getImageInfo') {
+  if (request.action === 'testNotification') {
+    // 处理测试通知请求，支持自定义显示时间
+    const displayTime = request.displayTime || 1000; // 默认3秒
+    showNotification(request.title, request.message, displayTime);
+    sendResponse({ success: true });
+    return true;
+  } else if (request.action === 'getImageInfo') {
     // 处理获取图片信息的请求
     sendResponse({ success: true });
   }
@@ -107,7 +135,7 @@ async function handleManualUpload(imageUrl) {
       throw new Error('请先选择一个工作任务');
     }
 
-    showNotification('处理中', '正在下载图片...');
+    showNotification('处理中', '正在下载图片...', 1000);
 
     // 下载图片
     const imageBlob = await downloadImage(imageUrl);
@@ -118,20 +146,22 @@ async function handleManualUpload(imageUrl) {
       throw new Error('图片下载失败：无效的Blob对象');
     }
 
-    showNotification('处理中', '正在上传图片...');
+    showNotification('处理中', '正在上传图片...', 1000);
 
     // 上传图片
     const result = await uploadImage(settings, imageBlob, settings.currentTask.workID);
 
-    showNotification('成功', `图片已成功上传到任务 ${settings.currentTask.workID}！`);
+    showNotification('成功', `图片已成功上传到任务 ${settings.currentTask.workID}！`, 1000);
     console.log('手动上传完成', result);
 
-    // 🎯 简化版本：只在上传成功后增加本地计数
+    // 在上传成功后增加本地计数
     await incrementLocalTaskProgress();
 
   } catch (error) {
     console.error('手动上传失败:', error);
-    showNotification('错误', '上传失败: ' + error.message);
+    // 使用友好的错误消息
+    const friendlyMessage = error.message.includes('错误代码:') ? error.message : '上传失败: ' + error.message;
+    showNotification('错误', friendlyMessage, 5000);
     throw error;
   }
 }
@@ -145,11 +175,13 @@ async function handleImageDownloadAndUpload(info, tab) {
 
     if (!settings.apiBase || !settings.token) {
       console.error('未配置API设置');
+      showNotification('配置错误', '请先在插件设置中配置API地址和Token', 6000);
       return;
     }
 
     if (!settings.currentTask || !settings.currentTask.workID) {
       console.error('未选择工作任务');
+      showNotification('任务错误', '请先选择一个工作任务', 6000);
       return;
     }
 
@@ -164,20 +196,15 @@ async function handleImageDownloadAndUpload(info, tab) {
     const result = await uploadImage(settings, imageBlob, settings.currentTask.workID);
 
     console.log('右键上传成功:', result);
-    await incrementLocalTaskProgress(); // 添加这行
+    showNotification('上传成功', `✅ 图片已成功上传到任务 ${settings.currentTask.workID}！`, 1000);
+    await incrementLocalTaskProgress(); //
 
-    // 尝试标记页面上的图片（如果可能）
-    try {
-      chrome.tabs.sendMessage(tab.id, {
-        action: 'markImageProcessed',
-        imageUrl: info.srcUrl
-      });
-    } catch (error) {
-      console.log('标记图片失败（正常情况）:', error.message);
-    }
 
   } catch (error) {
     console.error('右键上传失败:', error);
+    // 使用友好的错误消息
+    const friendlyMessage = error.message.includes('错误代码:') ? error.message : '右键上传失败: ' + error.message;
+    showNotification('错误', friendlyMessage, 5000);
   }
 }
 
@@ -428,9 +455,6 @@ function parseSvgDimensions(svgText) {
   return { width, height };
 }
 
-// =============================================================================
-// API调用函数
-// =============================================================================
 
 // 上传图片到服务器
 async function uploadImage(settings, imageBlob, workId) {
@@ -474,19 +498,78 @@ async function uploadImage(settings, imageBlob, workId) {
   console.log('请求响应状态:', response.status, response.statusText);
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`上传失败: ${response.status} ${response.statusText} - ${errorText}`);
-  }
 
+    let errorMessage = `上传失败: HTTP ${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData.code && errorData.message) {
+        errorMessage = getUploadErrorMessage(errorData.code, errorData.message);
+      }
+    } catch (e) {
+      // 如果无法解析JSON，使用默认错误消息
+      const errorText = await response.text();
+      errorMessage = `上传失败: ${response.status} ${response.statusText} - ${errorText}`;
+    }
+    throw new Error(errorMessage);
+   
+  }
   const result = await response.json();
   console.log('✅ 上传成功:', result);
 
   // 检查响应格式
   if (result.code && result.code !== 200) {
-    throw new Error('上传失败: ' + result.message);
+    const errorMessage = getUploadErrorMessage(result.code, result.message);
+    throw new Error(errorMessage);
   }
 
   return result;
+}
+
+// 获取用户友好的上传错误消息
+function getUploadErrorMessage(code, originalMessage) {
+  const errorMessages = {
+    400: {
+      '未提供文件': '❌ 图片文件丢失，请重试',
+      '未提供工作ID': '❌ 工作任务未选择，请先选择一个任务',
+      '工作不存在': '❌ 选择的工作任务不存在，请重新选择任务',
+      '该工作已完成采集，不能继续添加图片': '✅ 该任务已完成采集，无需继续上传图片',
+      '错误原因': '❌ 请求参数错误：' + originalMessage,
+      'default': '❌ 请求参数错误：' + originalMessage,
+      '文件重复': '❌ 文件重复：' + originalMessage
+    },
+    401: {
+      '未授权访问': '🔐 未授权访问，请检查Token是否正确或已过期',
+      'default': '🔐 身份验证失败，请检查Token是否正确或已过期'
+    },
+    500: {
+      '服务器错误': '🔧 服务器内部错误，请稍后重试或联系管理员',
+      'default': '🔧 服务器内部错误，请稍后重试或联系管理员'
+    }
+  };
+
+  // 检查是否是文件名重复错误
+  if (code === 400 && originalMessage && originalMessage.includes('文件名重复')) {
+    const match = originalMessage.match(/文件名重复，已存在相同的图片文件: (.+)/);
+    if (match) {
+      return `🔄 图片已存在：${match[1]}\n该图片之前已经上传过了`;
+    }
+    return '🔄 图片文件名重复，该图片可能已经上传过了';
+  }
+
+  // 获取对应错误代码的消息映射
+  const codeMessages = errorMessages[code];
+  if (!codeMessages) {
+    return `❌ 上传失败 (错误代码: ${code})：${originalMessage}`;
+  }
+
+  // 查找具体的错误消息
+  const specificMessage = codeMessages[originalMessage];
+  if (specificMessage) {
+    return specificMessage;
+  }
+
+  // 使用默认消息
+  return codeMessages.default || `❌ 上传失败：${originalMessage}`;
 }
 
 

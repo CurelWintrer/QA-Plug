@@ -1,8 +1,5 @@
-// Content script for QA image collection plugin
-// This script runs in the context of web pages
 
-// 可以添加一些页面交互功能
-// 比如高亮显示已处理的图片等
+
 let processedImages = new Set();
 
 // 标记已处理的图片
@@ -16,7 +13,7 @@ function markImageAsProcessed(imageUrl) {
   }
 }
 
-// 统一的消息监听器（合并两个监听器）
+// 统一的消息监听器
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Content script 收到消息:', request);
   
@@ -30,13 +27,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       height: img ? img.naturalHeight : 0
     };
     sendResponse(imageInfo);
-  } else if (request.action === 'markImageProcessed') {
-    markImageAsProcessed(request.imageUrl);
-    showSuccessMessage('图片上传成功！已保存到数据库');
-    sendResponse({success: true});
-  } else if (request.action === 'showError') {
-    showErrorOnPage(request.error);
-    sendResponse({success: true});
+  // 移除浏览器悬浮通知相关的消息处理
   } else if (request.action === 'downloadImageInPage') {
     // 在页面环境中下载图片
     downloadImageInPageEnvironment(request.imageUrl)
@@ -53,114 +44,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// 在页面上显示成功信息
- function showSuccessMessage(message) {
-   // 创建成功提示框
-   const successDiv = document.createElement('div');
-   successDiv.style.cssText = `
-     position: fixed;
-     top: 20px;
-     right: 20px;
-     background: #d4edda;
-     color: #155724;
-     border: 1px solid #c3e6cb;
-     border-radius: 4px;
-     padding: 15px;
-     max-width: 300px;
-     z-index: 10000;
-     font-family: Arial, sans-serif;
-     font-size: 14px;
-     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-     animation: slideIn 0.3s ease-out;
-   `;
-   successDiv.innerHTML = `
-     <strong>✅ QA插件:</strong><br>
-     ${message}
-     <button onclick="this.parentElement.remove()" style="
-       float: right;
-       background: none;
-       border: none;
-       font-size: 16px;
-       cursor: pointer;
-       color: #155724;
-     ">×</button>
-   `;
-   
-   // 添加动画样式
-   if (!document.getElementById('qa-plugin-styles')) {
-     const style = document.createElement('style');
-     style.id = 'qa-plugin-styles';
-     style.textContent = `
-       @keyframes slideIn {
-         from {
-           transform: translateX(100%);
-           opacity: 0;
-         }
-         to {
-           transform: translateX(0);
-           opacity: 1;
-         }
-       }
-     `;
-     document.head.appendChild(style);
-   }
-   
-   document.body.appendChild(successDiv);
-   
-   // 3秒后自动移除
-   setTimeout(() => {
-     if (successDiv.parentElement) {
-       successDiv.style.animation = 'slideIn 0.3s ease-out reverse';
-       setTimeout(() => {
-         if (successDiv.parentElement) {
-           successDiv.remove();
-         }
-       }, 300);
-     }
-   }, 3000);
- }
+// 移除浏览器悬浮通知功能
  
- // 在页面上显示错误信息
- function showErrorOnPage(errorMessage) {
-   // 创建错误提示框
-   const errorDiv = document.createElement('div');
-   errorDiv.style.cssText = `
-     position: fixed;
-     top: 20px;
-     right: 20px;
-     background: #f8d7da;
-     color: #721c24;
-     border: 1px solid #f5c6cb;
-     border-radius: 4px;
-     padding: 15px;
-     max-width: 300px;
-     z-index: 10000;
-     font-family: Arial, sans-serif;
-     font-size: 14px;
-     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-   `;
-   errorDiv.innerHTML = `
-     <strong>❌ QA插件错误:</strong><br>
-     ${errorMessage}
-     <button onclick="this.parentElement.remove()" style="
-       float: right;
-       background: none;
-       border: none;
-       font-size: 16px;
-       cursor: pointer;
-       color: #721c24;
-     ">×</button>
-   `;
-   
-   document.body.appendChild(errorDiv);
-   
-   // 5秒后自动移除
-   setTimeout(() => {
-     if (errorDiv.parentElement) {
-       errorDiv.remove();
-     }
-   }, 5000);
- }
+// 移除错误悬浮通知功能
 
 // 在页面环境中下载图片
 async function downloadImageInPageEnvironment(imageUrl) {
